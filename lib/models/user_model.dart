@@ -18,15 +18,29 @@ class UserModel {
   });
 
   factory UserModel.fromMap(Map<String, dynamic> data, String id) {
+    DateTime createdAt = DateTime.now();
+    
+    // Try to parse created_at if exists
+    if (data['created_at'] != null) {
+      try {
+        if (data['created_at'] is String) {
+          createdAt = DateTime.parse(data['created_at'] as String);
+        } else if (data['created_at'] is int) {
+          createdAt = DateTime.fromMillisecondsSinceEpoch(data['created_at'] as int);
+        }
+      } catch (e) {
+        // If parsing fails, use current time
+        createdAt = DateTime.now();
+      }
+    }
+    
     return UserModel(
       id: id,
       email: data['email'] ?? '',
       name: data['name'] ?? '',
       role: data['role'] ?? '',
       permissions: List<String>.from(data['permissions'] ?? []),
-      createdAt: data['created_at'] != null
-          ? DateTime.parse(data['created_at'] as String)
-          : DateTime.now(),
+      createdAt: createdAt,
       isActive: data['is_active'] ?? true,
     );
   }
