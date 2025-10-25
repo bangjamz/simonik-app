@@ -17,6 +17,7 @@
 
 ### **Admin Account**
 - **Email**: `admin.simonik@mahardika.ac.id`
+- **Password**: `admin123`
 - **Role**: Admin
 - **Permissions**: Full Access (All Features)
   - ✅ Manage Users
@@ -30,6 +31,7 @@
 
 ### **Ketua LPM Account**
 - **Email**: `lpm@mahardika.ac.id`
+- **Password**: `lpm123`
 - **Role**: Ketua LPM
 - **Permissions**: Full Access (All Features)
   - ✅ Manage Users
@@ -41,7 +43,7 @@
   - ✅ Manage Settings
   - ✅ Export PDF
 
-**Note**: Password sudah Anda set sendiri di Firebase Console.
+**Note**: Passwords sudah di-set untuk testing. Silakan ubah setelah login pertama kali.
 
 ---
 
@@ -96,7 +98,7 @@ service cloud.firestore {
 ### **Method 1: Email/Password**
 1. Open: https://simonik-mahardika1-d83bb.web.app
 2. Enter email: `admin.simonik@mahardika.ac.id` or `lpm@mahardika.ac.id`
-3. Enter password (yang Anda set)
+3. Enter password: `admin123` or `lpm123`
 4. Click "Masuk"
 
 ### **Method 2: Google Sign-In**
@@ -298,8 +300,8 @@ Firebase Console → Crashlytics
 **Live Application**: https://simonik-mahardika1-d83bb.web.app
 
 **Test Accounts**:
-1. `admin.simonik@mahardika.ac.id` (Admin - Full Access)
-2. `lpm@mahardika.ac.id` (Ketua LPM - Full Access)
+1. `admin.simonik@mahardika.ac.id` / `admin123` (Admin - Full Access)
+2. `lpm@mahardika.ac.id` / `lpm123` (Ketua LPM - Full Access)
 
 **Firebase Backend**: Fully configured with sample data
 
