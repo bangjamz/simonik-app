@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
 import 'create_monev_screen.dart';
 import 'monev_detail_screen.dart';
 
@@ -10,8 +12,74 @@ class MonevListScreen extends StatefulWidget {
 }
 
 class _MonevListScreenState extends State<MonevListScreen> {
-  // Demo data
-  final List<Map<String, dynamic>> monevSessions = [];
+  bool _isLoading = true;
+  List<Map<String, dynamic>> monevSessions = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMonevSessions();
+  }
+
+  Future<void> _loadMonevSessions() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('monev_sessions')
+          .orderBy('created_at', descending: true)
+          .get();
+
+      // Get user data for auditors and auditees
+      final sessions = <Map<String, dynamic>>[];
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        
+        // Get auditor name
+        String auditorName = 'Loading...';
+        if (data['auditor_id'] != null) {
+          final auditorDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(data['auditor_id'])
+              .get();
+          if (auditorDoc.exists) {
+            auditorName = auditorDoc.data()?['name'] ?? 'Unknown';
+          }
+        }
+
+        // Format date
+        String dateStr = 'N/A';
+        if (data['scheduled_date'] != null) {
+          try {
+            final date = DateTime.parse(data['scheduled_date']);
+            dateStr = DateFormat('dd MMM yyyy').format(date);
+          } catch (e) {
+            debugPrint('Error parsing date: $e');
+          }
+        }
+
+        sessions.add({
+          'id': doc.id,
+          'title': data['title'] ?? 'Untitled',
+          'unit_kerja': data['unit_kerja'] ?? 'N/A',
+          'status': data['status'] ?? 'draft',
+          'date': dateStr,
+          'auditor': auditorName,
+          'session_code': data['session_code'] ?? '',
+        });
+      }
+
+      if (mounted) {
+        setState(() {
+          monevSessions = sessions;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading monev sessions: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -32,7 +100,9 @@ class _MonevListScreenState extends State<MonevListScreen> {
         ],
       ),
       body: SafeArea(
-        child: monevSessions.isEmpty
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : monevSessions.isEmpty
             ? Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -52,13 +122,15 @@ class _MonevListScreenState extends State<MonevListScreen> {
                     ),
                     const SizedBox(height: 8),
                     TextButton.icon(
-                      onPressed: () {
-                        Navigator.push(
+                      onPressed: () async {
+                        await Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (_) => const CreateMonevScreen(),
                           ),
                         );
+                        // Reload sessions after creating new one
+                        _loadMonevSessions();
                       },
                       icon: const Icon(Icons.add),
                       label: const Text('Buat Monev Baru'),
@@ -150,13 +222,15 @@ class _MonevListScreenState extends State<MonevListScreen> {
               ),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.push(
+        onPressed: () async {
+          await Navigator.push(
             context,
             MaterialPageRoute(
               builder: (_) => const CreateMonevScreen(),
             ),
           );
+          // Reload sessions after creating new one
+          _loadMonevSessions();
         },
         icon: const Icon(Icons.add),
         label: const Text('Monev Baru'),

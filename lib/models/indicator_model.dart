@@ -42,6 +42,8 @@ class Indicator {
   final String type; // 'IKU' or 'IKT'
   final String categoryId;
   final String? subCategoryId;
+  final String measurementType; // 'Persentase', 'Rasio', 'Deskripsi', 'Angka'
+  final String? unit; // Unit measurement (%, orang, buah, etc.)
   final int order;
   final DateTime createdAt;
   final bool isActive;
@@ -53,6 +55,8 @@ class Indicator {
     required this.type,
     required this.categoryId,
     this.subCategoryId,
+    required this.measurementType,
+    this.unit,
     required this.order,
     required this.createdAt,
     this.isActive = true,
@@ -66,6 +70,8 @@ class Indicator {
       type: data['type'] ?? 'IKU',
       categoryId: data['category_id'] ?? '',
       subCategoryId: data['sub_category_id'],
+      measurementType: data['measurement_type'] ?? MeasurementType.deskripsi,
+      unit: data['unit'],
       order: data['order'] ?? 0,
       createdAt: data['created_at'] != null
           ? DateTime.parse(data['created_at'] as String)
@@ -81,6 +87,8 @@ class Indicator {
       'type': type,
       'category_id': categoryId,
       'sub_category_id': subCategoryId,
+      'measurement_type': measurementType,
+      'unit': unit,
       'order': order,
       'created_at': createdAt.toIso8601String(),
       'is_active': isActive,
@@ -94,5 +102,44 @@ class IndicatorType {
 
   static List<String> getTypes() {
     return [iku, ikt];
+  }
+}
+
+class MeasurementType {
+  static const String persentase = 'Persentase';
+  static const String rasio = 'Rasio';
+  static const String deskripsi = 'Deskripsi';
+  static const String angka = 'Angka';
+
+  static List<String> getTypes() {
+    return [persentase, rasio, deskripsi, angka];
+  }
+
+  static String getLabel(String type) {
+    switch (type) {
+      case persentase:
+        return 'Persentase (%)';
+      case rasio:
+        return 'Rasio (x:y)';
+      case deskripsi:
+        return 'Deskripsi (Teks)';
+      case angka:
+        return 'Angka (Numeric)';
+      default:
+        return type;
+    }
+  }
+
+  static String? getDefaultUnit(String type) {
+    switch (type) {
+      case persentase:
+        return '%';
+      case rasio:
+        return 'rasio';
+      case angka:
+        return 'unit';
+      default:
+        return null;
+    }
   }
 }

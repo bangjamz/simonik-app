@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:image_picker/image_picker.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:io';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -12,6 +17,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
   double fontSize = 14.0;
   String logoPath = 'Belum ada logo';
   String kopPath = 'Belum ada kop';
+  String? logoUrl;
+  String? kopUrl;
+  bool _isLoading = false;
+  final ImagePicker _picker = ImagePicker();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('settings')
+          .doc('app_config')
+          .get();
+      
+      if (doc.exists) {
+        final data = doc.data();
+        if (mounted) {
+          setState(() {
+            logoUrl = data?['logo_url'];
+            kopUrl = data?['kop_url'];
+            logoPath = logoUrl != null ? 'Logo tersimpan' : 'Belum ada logo';
+            kopPath = kopUrl != null ? 'Kop tersimpan' : 'Belum ada kop';
+            selectedFont = data?['font_family'] ?? 'Roboto';
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading settings: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -42,17 +81,71 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _buildSectionHeader('Media'),
             _buildSettingTile(
               icon: Icons.image,
-              title: 'Logo',
+              title: 'Logo Institusi',
               subtitle: logoPath,
-              trailing: const Icon(Icons.upload_file),
-              onTap: () => _uploadLogo(),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (logoUrl != null)
+                    IconButton(
+                      icon: const Icon(Icons.preview),
+                      onPressed: () => _showImagePreview(logoUrl!, 'Logo'),
+                    ),
+                  const Icon(Icons.upload_file),
+                ],
+              ),
+              onTap: _isLoading ? null : () => _uploadLogo(),
+            ),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, size: 16, color: Colors.grey[600]),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Format: PNG/JPG, Ukuran maksimal: 2MB, Rekomendasi: 512x512px',
+                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
             _buildSettingTile(
               icon: Icons.document_scanner,
               title: 'Kop Surat',
               subtitle: kopPath,
-              trailing: const Icon(Icons.upload_file),
-              onTap: () => _uploadKop(),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (kopUrl != null)
+                    IconButton(
+                      icon: const Icon(Icons.preview),
+                      onPressed: () => _showImagePreview(kopUrl!, 'Kop Surat'),
+                    ),
+                  const Icon(Icons.upload_file),
+                ],
+              ),
+              onTap: _isLoading ? null : () => _uploadKop(),
+            ),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, size: 16, color: Colors.grey[600]),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Format: PNG/JPG, Ukuran maksimal: 2MB, Rekomendasi: 2480x3508px (A4)',
+                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
             const SizedBox(height: 24),
             _buildSectionHeader('Tampilan'),
@@ -234,70 +327,176 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _uploadLogo() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Upload Logo'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Pilih file logo (PNG, JPG, maksimal 2MB)'),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              onPressed: () {
-                Navigator.pop(context);
-                setState(() => logoPath = 'logo.png');
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Logo berhasil diupload')),
-                );
-              },
-              icon: const Icon(Icons.upload_file),
-              label: const Text('Pilih File'),
+  Future<void> _uploadLogo() async {
+    try {
+      setState(() => _isLoading = true);
+      
+      // Pick image
+      final XFile? image = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 85,
+      );
+
+      if (image == null) {
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      // Check file size (max 2MB)
+      final fileSize = await image.length();
+      if (fileSize > 2 * 1024 * 1024) {
+        if (mounted) {
+          setState(() => _isLoading = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Ukuran file maksimal 2MB!'),
+              backgroundColor: Colors.red,
             ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Tutup'),
+          );
+        }
+        return;
+      }
+
+      // Upload to Firebase Storage
+      final storageRef = FirebaseStorage.instance
+          .ref()
+          .child('settings/logo_${DateTime.now().millisecondsSinceEpoch}.png');
+      
+      UploadTask uploadTask;
+      if (kIsWeb) {
+        final bytes = await image.readAsBytes();
+        uploadTask = storageRef.putData(
+          bytes,
+          SettableMetadata(contentType: 'image/png'),
+        );
+      } else {
+        uploadTask = storageRef.putFile(File(image.path));
+      }
+
+      final snapshot = await uploadTask;
+      final downloadUrl = await snapshot.ref.getDownloadURL();
+
+      // Save URL to Firestore
+      await FirebaseFirestore.instance
+          .collection('settings')
+          .doc('app_config')
+          .set({
+            'logo_url': downloadUrl,
+            'updated_at': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+
+      if (mounted) {
+        setState(() {
+          logoUrl = downloadUrl;
+          logoPath = 'Logo tersimpan';
+          _isLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Logo berhasil diupload!'),
+            backgroundColor: Colors.green,
           ),
-        ],
-      ),
-    );
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal upload logo: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
-  void _uploadKop() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Upload Kop Surat'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Pilih file kop (PNG, JPG, maksimal 2MB)'),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              onPressed: () {
-                Navigator.pop(context);
-                setState(() => kopPath = 'kop.png');
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Kop surat berhasil diupload')),
-                );
-              },
-              icon: const Icon(Icons.upload_file),
-              label: const Text('Pilih File'),
+  Future<void> _uploadKop() async {
+    try {
+      setState(() => _isLoading = true);
+      
+      // Pick image
+      final XFile? image = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 2048,
+        maxHeight: 2048,
+        imageQuality: 90,
+      );
+
+      if (image == null) {
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      // Check file size (max 2MB)
+      final fileSize = await image.length();
+      if (fileSize > 2 * 1024 * 1024) {
+        if (mounted) {
+          setState(() => _isLoading = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Ukuran file maksimal 2MB!'),
+              backgroundColor: Colors.red,
             ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Tutup'),
+          );
+        }
+        return;
+      }
+
+      // Upload to Firebase Storage
+      final storageRef = FirebaseStorage.instance
+          .ref()
+          .child('settings/kop_${DateTime.now().millisecondsSinceEpoch}.png');
+      
+      UploadTask uploadTask;
+      if (kIsWeb) {
+        final bytes = await image.readAsBytes();
+        uploadTask = storageRef.putData(
+          bytes,
+          SettableMetadata(contentType: 'image/png'),
+        );
+      } else {
+        uploadTask = storageRef.putFile(File(image.path));
+      }
+
+      final snapshot = await uploadTask;
+      final downloadUrl = await snapshot.ref.getDownloadURL();
+
+      // Save URL to Firestore
+      await FirebaseFirestore.instance
+          .collection('settings')
+          .doc('app_config')
+          .set({
+            'kop_url': downloadUrl,
+            'updated_at': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+
+      if (mounted) {
+        setState(() {
+          kopUrl = downloadUrl;
+          kopPath = 'Kop tersimpan';
+          _isLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Kop surat berhasil diupload!'),
+            backgroundColor: Colors.green,
           ),
-        ],
-      ),
-    );
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal upload kop: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   void _changeTheme() {
@@ -350,6 +549,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: const Text('Tutup'),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showImagePreview(String imageUrl, String title) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AppBar(
+              title: Text(title),
+              automaticallyImplyLeading: false,
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Image.network(
+                imageUrl,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) {
+                  return const Column(
+                    children: [
+                      Icon(Icons.error, size: 48, color: Colors.red),
+                      SizedBox(height: 8),
+                      Text('Gagal memuat gambar'),
+                    ],
+                  );
+                },
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return const Center(
+                    child: CircularProgressIndicator(),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

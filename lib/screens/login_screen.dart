@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../services/auth_service.dart';
 import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -27,29 +29,124 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() => _isLoading = true);
 
-    // Simulate login (in real app, use AuthService)
-    await Future.delayed(const Duration(seconds: 2));
+    try {
+      final authService = AuthService();
+      final userCredential = await authService.signInWithEmailPassword(
+        _emailController.text.trim(),
+        _passwordController.text,
+      );
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    // Navigate to home screen
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const HomeScreen()),
-    );
+      if (userCredential != null && userCredential.user != null) {
+        // Verify user exists in Firestore
+        final userData = await authService.getUserData(userCredential.user!.uid);
+        
+        if (userData == null) {
+          setState(() => _isLoading = false);
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Akun tidak ditemukan di sistem. Hubungi administrator.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          await authService.signOut();
+          return;
+        }
+
+        // Navigate to home screen
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+        );
+      }
+    } on FirebaseAuthException catch (e) {
+      setState(() => _isLoading = false);
+      if (!mounted) return;
+      
+      String errorMessage = 'Login gagal. Silakan coba lagi.';
+      
+      switch (e.code) {
+        case 'user-not-found':
+          errorMessage = 'Email tidak terdaftar.';
+          break;
+        case 'wrong-password':
+          errorMessage = 'Password salah.';
+          break;
+        case 'invalid-email':
+          errorMessage = 'Format email tidak valid.';
+          break;
+        case 'user-disabled':
+          errorMessage = 'Akun telah dinonaktifkan.';
+          break;
+        case 'invalid-credential':
+          errorMessage = 'Email atau password salah.';
+          break;
+      }
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Terjadi kesalahan: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Future<void> _handleGoogleSignIn() async {
     setState(() => _isLoading = true);
 
-    // Simulate Google Sign In
-    await Future.delayed(const Duration(seconds: 2));
+    try {
+      final authService = AuthService();
+      final userCredential = await authService.signInWithGoogle();
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    // Navigate to home screen
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const HomeScreen()),
-    );
+      if (userCredential != null && userCredential.user != null) {
+        // Verify user exists in Firestore
+        final userData = await authService.getUserData(userCredential.user!.uid);
+        
+        if (userData == null) {
+          setState(() => _isLoading = false);
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Akun tidak ditemukan di sistem. Hubungi administrator.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          await authService.signOut();
+          return;
+        }
+
+        // Navigate to home screen
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+        );
+      } else {
+        setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Google Sign In gagal: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   @override

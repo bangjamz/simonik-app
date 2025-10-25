@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../models/indicator_model.dart';
 
 class IndicatorListScreen extends StatefulWidget {
   const IndicatorListScreen({super.key});
@@ -10,37 +12,41 @@ class IndicatorListScreen extends StatefulWidget {
 class _IndicatorListScreenState extends State<IndicatorListScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-
-  final List<Map<String, dynamic>> ikuList = [
-    {
-      'name': 'Kualitas Pembelajaran',
-      'description': 'Penilaian kualitas proses pembelajaran',
-      'category': 'Akademik',
-    },
-    {
-      'name': 'Kepuasan Mahasiswa',
-      'description': 'Survei kepuasan mahasiswa terhadap layanan',
-      'category': 'Akademik',
-    },
-  ];
-
-  final List<Map<String, dynamic>> iktList = [
-    {
-      'name': 'Penelitian Dosen',
-      'description': 'Jumlah dan kualitas penelitian dosen',
-      'category': 'Penelitian',
-    },
-    {
-      'name': 'Pengabdian Masyarakat',
-      'description': 'Kegiatan pengabdian kepada masyarakat',
-      'category': 'Pengabdian',
-    },
-  ];
+  List<Indicator> ikuList = [];
+  List<Indicator> iktList = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _loadIndicators();
+  }
+
+  Future<void> _loadIndicators() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('indicators')
+          .where('is_active', isEqualTo: true)
+          .get();
+
+      final indicators = snapshot.docs
+          .map((doc) => Indicator.fromMap(doc.data(), doc.id))
+          .toList();
+
+      if (mounted) {
+        setState(() {
+          ikuList = indicators.where((i) => i.type == IndicatorType.iku).toList();
+          iktList = indicators.where((i) => i.type == IndicatorType.ikt).toList();
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading indicators: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   @override
@@ -85,7 +91,11 @@ class _IndicatorListScreenState extends State<IndicatorListScreen>
     );
   }
 
-  Widget _buildIndicatorList(List<Map<String, dynamic>> indicators, String type) {
+  Widget _buildIndicatorList(List<Indicator> indicators, String type) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
     if (indicators.isEmpty) {
       return Center(
         child: Column(
@@ -138,12 +148,28 @@ class _IndicatorListScreenState extends State<IndicatorListScreen>
               ),
             ),
             title: Text(
-              indicator['name'],
+              indicator.name,
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
-            subtitle: Text(
-              indicator['category'],
-              style: TextStyle(color: Colors.grey[600]),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  MeasurementType.getLabel(indicator.measurementType),
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 12,
+                  ),
+                ),
+                if (indicator.unit != null)
+                  Text(
+                    'Unit: ${indicator.unit}',
+                    style: TextStyle(
+                      color: Colors.grey[500],
+                      fontSize: 11,
+                    ),
+                  ),
+              ],
             ),
             trailing: PopupMenuButton(
               itemBuilder: (context) => [
@@ -187,7 +213,14 @@ class _IndicatorListScreenState extends State<IndicatorListScreen>
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 8),
-                    Text(indicator['description']),
+                    Text(indicator.description),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Jenis Penilaian:',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(MeasurementType.getLabel(indicator.measurementType)),
                   ],
                 ),
               ),
@@ -198,119 +231,243 @@ class _IndicatorListScreenState extends State<IndicatorListScreen>
     );
   }
 
-  void _showAddIndicatorDialog({String? type}) {
+  void _showAddIndicatorDialog({String? type}) async {
     final nameController = TextEditingController();
     final descController = TextEditingController();
-    final categoryController = TextEditingController();
+    final unitController = TextEditingController();
     String selectedType = type ?? 'IKU';
+    String selectedMeasurementType = MeasurementType.deskripsi;
+    String? selectedCategoryId;
+
+    // Load categories
+    final categoriesSnapshot = await FirebaseFirestore.instance
+        .collection('categories')
+        .orderBy('order')
+        .get();
+    
+    final categories = categoriesSnapshot.docs;
+
+    if (!mounted) return;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Tambah Indikator'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<String>(
-                value: selectedType,
-                decoration: const InputDecoration(
-                  labelText: 'Tipe',
-                  border: OutlineInputBorder(),
-                ),
-                items: ['IKU', 'IKT'].map((t) {
-                  return DropdownMenuItem(value: t, child: Text(t));
-                }).toList(),
-                onChanged: (value) {
-                  if (value != null) selectedType = value;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Nama Indikator',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: descController,
-                decoration: const InputDecoration(
-                  labelText: 'Deskripsi',
-                  border: OutlineInputBorder(),
-                ),
-                maxLines: 3,
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: categoryController,
-                decoration: const InputDecoration(
-                  labelText: 'Kategori',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Batal'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (nameController.text.isNotEmpty) {
-                setState(() {
-                  final list = selectedType == 'IKU' ? ikuList : iktList;
-                  list.add({
-                    'name': nameController.text,
-                    'description': descController.text,
-                    'category': categoryController.text,
-                  });
-                });
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Indikator berhasil ditambahkan'),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Tambah Indikator'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String>(
+                  value: selectedType,
+                  decoration: const InputDecoration(
+                    labelText: 'Tipe Indikator',
+                    border: OutlineInputBorder(),
                   ),
-                );
-              }
-            },
-            child: const Text('Simpan'),
+                  items: ['IKU', 'IKT'].map((t) {
+                    return DropdownMenuItem(value: t, child: Text(t));
+                  }).toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setDialogState(() => selectedType = value);
+                    }
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Nama Indikator',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: descController,
+                  decoration: const InputDecoration(
+                    labelText: 'Deskripsi',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 3,
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  value: selectedMeasurementType,
+                  decoration: const InputDecoration(
+                    labelText: 'Jenis Penilaian',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: MeasurementType.getTypes().map((t) {
+                    return DropdownMenuItem(
+                      value: t,
+                      child: Text(MeasurementType.getLabel(t)),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setDialogState(() {
+                        selectedMeasurementType = value;
+                        // Auto-fill unit based on measurement type
+                        final defaultUnit = MeasurementType.getDefaultUnit(value);
+                        if (defaultUnit != null) {
+                          unitController.text = defaultUnit;
+                        }
+                      });
+                    }
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: unitController,
+                  decoration: const InputDecoration(
+                    labelText: 'Satuan (opsional)',
+                    hintText: 'Contoh: %, orang, buah',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  value: selectedCategoryId,
+                  decoration: const InputDecoration(
+                    labelText: 'Kategori',
+                    border: OutlineInputBorder(),
+                  ),
+                  hint: const Text('Pilih Kategori'),
+                  items: categories.map((doc) {
+                    return DropdownMenuItem(
+                      value: doc.id,
+                      child: Text(doc.data()['name'] ?? ''),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    setDialogState(() => selectedCategoryId = value);
+                  },
+                ),
+              ],
+            ),
           ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (nameController.text.isNotEmpty && selectedCategoryId != null) {
+                  try {
+                    // Get max order for new indicator
+                    final existingSnapshot = await FirebaseFirestore.instance
+                        .collection('indicators')
+                        .where('type', isEqualTo: selectedType)
+                        .get();
+                    
+                    final maxOrder = existingSnapshot.docs.isEmpty
+                        ? 0
+                        : existingSnapshot.docs
+                            .map((doc) => doc.data()['order'] as int? ?? 0)
+                            .reduce((a, b) => a > b ? a : b);
+
+                    // Save to Firestore
+                    await FirebaseFirestore.instance.collection('indicators').add({
+                      'name': nameController.text,
+                      'description': descController.text,
+                      'type': selectedType,
+                      'measurement_type': selectedMeasurementType,
+                      'unit': unitController.text.isEmpty ? null : unitController.text,
+                      'category_id': selectedCategoryId,
+                      'order': maxOrder + 1,
+                      'is_active': true,
+                      'created_at': DateTime.now().toIso8601String(),
+                    });
+
+                    // Reload indicators
+                    await _loadIndicators();
+
+                    if (context.mounted) {
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Indikator berhasil ditambahkan'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Gagal menambahkan indikator: $e'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  }
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Nama indikator dan kategori harus diisi'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                }
+              },
+              child: const Text('Simpan'),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  void _showEditIndicatorDialog(Map<String, dynamic> indicator) {
+  void _showEditIndicatorDialog(Indicator indicator) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Edit indikator: ${indicator['name']}')),
+      SnackBar(content: Text('Edit indikator: ${indicator.name}')),
     );
   }
 
-  void _confirmDelete(Map<String, dynamic> indicator) {
+  void _confirmDelete(Indicator indicator) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Konfirmasi Hapus'),
-        content: Text('Hapus indikator ${indicator['name']}?'),
+        content: Text('Hapus indikator ${indicator.name}?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Batal'),
           ),
           ElevatedButton(
-            onPressed: () {
-              setState(() {
-                ikuList.remove(indicator);
-                iktList.remove(indicator);
-              });
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Indikator berhasil dihapus')),
-              );
+            onPressed: () async {
+              try {
+                // Soft delete - just set is_active to false
+                await FirebaseFirestore.instance
+                    .collection('indicators')
+                    .doc(indicator.id)
+                    .update({'is_active': false});
+
+                // Reload indicators
+                await _loadIndicators();
+
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Indikator berhasil dihapus'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Gagal menghapus indikator: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,

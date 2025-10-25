@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+
+import '../services/auth_service.dart';
 import 'login_screen.dart';
+import 'home_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -29,10 +32,30 @@ class _SplashScreenState extends State<SplashScreen>
 
     _animationController.forward();
 
-    Timer(const Duration(seconds: 3), () {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-      );
+    Timer(const Duration(seconds: 3), () async {
+      // Check if user is already logged in
+      final authService = AuthService();
+      final currentUser = authService.currentUser;
+      
+      if (currentUser != null) {
+        // User is logged in, verify in Firestore
+        final userData = await authService.getUserData(currentUser.uid);
+        
+        if (userData != null && mounted) {
+          // User exists in system, go to home
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const HomeScreen()),
+          );
+          return;
+        }
+      }
+      
+      // No valid session, go to login
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+        );
+      }
     });
   }
 
